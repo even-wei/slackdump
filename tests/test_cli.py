@@ -1,7 +1,6 @@
 """Tests for SlackDump CLI functionality."""
 
 import pytest
-import sys
 from unittest.mock import Mock, patch
 from datetime import datetime
 from argparse import ArgumentParser
@@ -200,7 +199,10 @@ class TestPrintPreview:
     def test_print_preview_long_message(self):
         """Test preview with long message text."""
         # Create mock message with long text
-        long_text = "This is a very long message that exceeds 100 characters and should be truncated in the preview display"
+        long_text = (
+            "This is a very long message that exceeds 100 characters and should be "
+            "truncated in the preview display"
+        )
         mock_msg = Mock()
         mock_msg.to_dict.return_value = {
             "datetime": "2023-01-01T12:00:00",
@@ -228,7 +230,8 @@ class TestMainFunction:
 
             assert exc_info.value.code == 1
             mock_print.assert_any_call(
-                "❌ Error: Invalid token format. Slack bot tokens should start with 'xoxb-'"
+                "❌ Error: Invalid token format. Slack bot tokens should "
+                "start with 'xoxb-'"
             )
 
     @patch("slackdump.cli.SlackMessageParser")

@@ -5,9 +5,12 @@ import json
 import os
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import requests
+
+if TYPE_CHECKING:
+    from .filters import SlackMessageFilter
 
 
 class SlackMessage:
@@ -72,7 +75,7 @@ class SlackMessageParser:
 
         try:
             response = self._make_request("auth.test", {})
-            return response.get("ok", False)
+            return bool(response.get("ok", False))
         except Exception:
             return False
 
@@ -97,7 +100,8 @@ class SlackMessageParser:
                     error_msg = data.get("error", "Unknown error")
                     if error_msg == "channel_not_found":
                         raise ValueError(
-                            "Channel not found. Please check the channel ID format (C...)"
+                            "Channel not found. Please check the channel ID "
+                            "format (C...)"
                         )
                     elif error_msg == "invalid_auth":
                         raise ValueError(
@@ -106,7 +110,7 @@ class SlackMessageParser:
                     else:
                         raise ValueError(f"Slack API error: {error_msg}")
 
-                return data
+                return dict(data)
 
             except requests.exceptions.RequestException as e:
                 raise ConnectionError(
@@ -178,7 +182,7 @@ class SlackMessageParser:
 
     def export_messages(
         self, messages: List[SlackMessage], output_path: str, format: str = "json"
-    ):
+    ) -> None:
         """Export messages to file."""
         if not messages:
             print("⚠️ No messages to export")
@@ -231,7 +235,8 @@ class SlackMessageParser:
 
         except PermissionError:
             raise PermissionError(
-                f"Permission denied writing to {output_path}. Please check file permissions."
+                f"Permission denied writing to {output_path}. "
+                "Please check file permissions."
             )
         except Exception as e:
             raise IOError(f"Error writing file: {e}")

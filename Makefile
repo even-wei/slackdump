@@ -70,8 +70,8 @@ test-verbose: ## Run tests with verbose output
 
 lint: ## Run linter (flake8)
 	@echo "$(BLUE)Running linter...$(NC)"
-	uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-	uv run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+	uv run flake8 . --exclude=.venv --count --select=E9,F63,F7,F82 --show-source --statistics
+	uv run flake8 . --exclude=.venv --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
 
 format: ## Format code with black
 	@echo "$(BLUE)Formatting code...$(NC)"

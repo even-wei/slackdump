@@ -1,9 +1,10 @@
 """CLI argument parsing and main logic for SlackDump."""
 
 import argparse
+from argparse import Namespace
 import sys
 from datetime import datetime
-from typing import List
+from typing import Any, List
 
 from .filters import AuthorFilter, RegexFilter, SlackMessageFilter, TimeRangeFilter
 from .parser import SlackMessageParser
@@ -36,8 +37,10 @@ Examples:
   slackdump --token xoxb-... --channel C1234567890
   slackdump --token xoxb-... --channel C1234567890 --output messages.json
   slackdump --token xoxb-... --channel C1234567890 --limit 100 --format csv
-  slackdump --token xoxb-... --channel C1234567890 --regex "error|warning" --case-sensitive
-  slackdump --token xoxb-... --channel C1234567890 --start-time "2023-01-01" --end-time "2023-12-31"
+  slackdump --token xoxb-... --channel C1234567890 --regex "error|warning" \\
+      --case-sensitive
+  slackdump --token xoxb-... --channel C1234567890 --start-time "2023-01-01" \\
+      --end-time "2023-12-31"
   slackdump --token xoxb-... --channel C1234567890 --users U1234567890 U0987654321
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -73,15 +76,16 @@ Examples:
     return parser
 
 
-def print_preview(messages: List, total_count: int):
+def print_preview(messages: List[Any], total_count: int) -> None:
     """Print first 10 messages to stdout with pagination hint."""
     print(f"\n📋 Showing first 10 of {total_count} messages:\n")
 
     for i, msg in enumerate(messages[:10], 1):
         msg_dict = msg.to_dict()
-        print(
-            f"{i:2d}. [{msg_dict['datetime'][:19]}] {msg_dict['user']}: {msg_dict['text'][:100]}"
-        )
+        datetime_str = msg_dict["datetime"][:19]
+        user = msg_dict["user"]
+        text = msg_dict["text"][:100]
+        print(f"{i:2d}. [{datetime_str}] {user}: {text}")
         if len(msg_dict["text"]) > 100:
             print("    ...")
 
@@ -89,12 +93,8 @@ def print_preview(messages: List, total_count: int):
         print(f"\n💡 Use --output to save all {total_count} messages to a file")
 
 
-def main():
-    """Main CLI entry point."""
-    parser = create_parser()
-    args = parser.parse_args()
-
-    # Validate token format
+def validate_inputs(args: Namespace) -> None:
+    """Validate token and channel format."""
     if not args.token.startswith("xoxb-"):
         print(
             "❌ Error: Invalid token format. Slack bot tokens should start with 'xoxb-'"
@@ -108,7 +108,6 @@ def main():
         print("   6. Copy 'Bot User OAuth Token' (starts with xoxb-)")
         sys.exit(1)
 
-    # Validate channel format
     if not args.channel.startswith("C"):
         print("❌ Error: Invalid channel format. Channel IDs should start with 'C'")
         print("💡 To find channel ID:")
@@ -117,79 +116,95 @@ def main():
         print("   3. Extract ID from URL (e.g., C1234567890)")
         sys.exit(1)
 
+
+def create_filters(args: Namespace) -> List[SlackMessageFilter]:
+    """Create message filters based on arguments."""
+    filters: List[SlackMessageFilter] = []
+
+    # Time range filter
+    if args.start_time or args.end_time:
+        try:
+            start_time = (
+                parse_datetime(args.start_time) if args.start_time else None
+            )
+            end_time = parse_datetime(args.end_time) if args.end_time else None
+            filters.append(TimeRangeFilter(start_time, end_time))
+            start_str = args.start_time or "start"
+            end_str = args.end_time or "end"
+            print(f"🕒 Applied time filter: {start_str} to {end_str}")
+        except ValueError as e:
+            print(f"❌ Error: {e}")
+            sys.exit(1)
+
+    # Regex filter
+    if args.regex:
+        try:
+            filters.append(RegexFilter(args.regex, args.case_sensitive))
+            case_info = (
+                " (case-sensitive)" if args.case_sensitive else " (case-insensitive)"
+            )
+            print(f"🔍 Applied regex filter: '{args.regex}'{case_info}")
+        except ValueError as e:
+            print(f"❌ Error: {e}")
+            sys.exit(1)
+
+    # Author filter
+    if args.users:
+        filters.append(AuthorFilter(args.users))
+        print(f"👥 Applied user filter: {', '.join(args.users)}")
+
+    return filters
+
+
+def process_messages(args: Namespace) -> None:
+    """Process and filter messages."""
+    # Initialize parser
+    print("🔧 Initializing Slack API connection...")
+    slack_parser = SlackMessageParser(args.token)
+
+    # Fetch messages
+    print(f"📡 Fetching messages from channel {args.channel}...")
+    messages = slack_parser.get_channel_messages(args.channel, args.limit)
+
+    if not messages:
+        print("⚠️  No messages found in channel")
+        sys.exit(0)
+
+    # Apply filters
+    filters = create_filters(args)
+    if filters:
+        original_count = len(messages)
+        messages = slack_parser.filter_messages(messages, filters)
+        print(f"✅ Filtered {original_count} → {len(messages)} messages")
+
+    # Handle output
+    if args.output:
+        try:
+            slack_parser.export_messages(messages, args.output, args.format)
+        except (PermissionError, IOError) as e:
+            print(f"❌ Error: {e}")
+            sys.exit(1)
+    else:
+        print_preview(messages, len(messages))
+
+
+def main() -> None:
+    """Main CLI entry point."""
+    parser = create_parser()
+    args = parser.parse_args()
+
+    validate_inputs(args)
+
     try:
-        # Initialize parser
-        print("🔧 Initializing Slack API connection...")
-        slack_parser = SlackMessageParser(args.token)
-
-        # Fetch messages
-        print(f"📡 Fetching messages from channel {args.channel}...")
-        messages = slack_parser.get_channel_messages(args.channel, args.limit)
-
-        if not messages:
-            print("⚠️  No messages found in channel")
-            sys.exit(0)
-
-        # Apply filters
-        filters: List[SlackMessageFilter] = []
-
-        # Time range filter
-        if args.start_time or args.end_time:
-            try:
-                start_time = (
-                    parse_datetime(args.start_time) if args.start_time else None
-                )
-                end_time = parse_datetime(args.end_time) if args.end_time else None
-                filters.append(TimeRangeFilter(start_time, end_time))
-                print(
-                    f"🕒 Applied time filter: {args.start_time or 'start'} to {args.end_time or 'end'}"
-                )
-            except ValueError as e:
-                print(f"❌ Error: {e}")
-                sys.exit(1)
-
-        # Regex filter
-        if args.regex:
-            try:
-                filters.append(RegexFilter(args.regex, args.case_sensitive))
-                case_info = (
-                    " (case-sensitive)"
-                    if args.case_sensitive
-                    else " (case-insensitive)"
-                )
-                print(f"🔍 Applied regex filter: '{args.regex}'{case_info}")
-            except ValueError as e:
-                print(f"❌ Error: {e}")
-                sys.exit(1)
-
-        # Author filter
-        if args.users:
-            filters.append(AuthorFilter(args.users))
-            print(f"👥 Applied user filter: {', '.join(args.users)}")
-
-        # Apply all filters
-        if filters:
-            original_count = len(messages)
-            messages = slack_parser.filter_messages(messages, filters)
-            print(f"✅ Filtered {original_count} → {len(messages)} messages")
-
-        # Handle output
-        if args.output:
-            try:
-                slack_parser.export_messages(messages, args.output, args.format)
-            except (PermissionError, IOError) as e:
-                print(f"❌ Error: {e}")
-                sys.exit(1)
-        else:
-            print_preview(messages, len(messages))
-
+        process_messages(args)
     except ValueError as e:
         print(f"❌ Configuration Error: {e}")
         sys.exit(1)
     except ConnectionError as e:
         print(f"❌ Network Error: {e}")
         print(
-            "💡 Try again in a few moments. If problem persists, check your internet connection."
+            "💡 Try again in a few moments. If problem persists, "
+            "check your internet connection."
         )
         sys.exit(1)
     except KeyboardInterrupt:
@@ -198,7 +213,8 @@ def main():
     except Exception as e:
         print(f"❌ Unexpected Error: {e}")
         print(
-            "💡 Please check your inputs and try again. If problem persists, please report this issue."
+            "💡 Please check your inputs and try again. If problem persists, "
+            "please report this issue."
         )
         sys.exit(1)
 
