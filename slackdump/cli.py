@@ -124,9 +124,7 @@ def create_filters(args: Namespace) -> List[SlackMessageFilter]:
     # Time range filter
     if args.start_time or args.end_time:
         try:
-            start_time = (
-                parse_datetime(args.start_time) if args.start_time else None
-            )
+            start_time = parse_datetime(args.start_time) if args.start_time else None
             end_time = parse_datetime(args.end_time) if args.end_time else None
             filters.append(TimeRangeFilter(start_time, end_time))
             start_str = args.start_time or "start"
